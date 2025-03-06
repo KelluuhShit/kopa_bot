@@ -1,7 +1,7 @@
 const { log } = require('../utils/logger');
-const { setUserState, getUserState, clearUserState } = require('../state/userState');
+const { setUserState, getUserState, clearUserState, markApplicationCompleted, hasApplied } = require('../state/userState');
 const PDFDocument = require('pdfkit');
-const fs = require('fs').promises; // Use promises for async operations
+const fs = require('fs').promises;
 const path = require('path');
 
 const loanHandlers = {
@@ -9,6 +9,14 @@ const loanHandlers = {
     const chatId = callbackQuery.message.chat.id;
     const userId = callbackQuery.from.id;
 
+    // Check if user has already applied
+    if (hasApplied(userId)) {
+      bot.sendMessage(chatId, '⚠️ You have already submitted a loan application. Multiple applications are not allowed. Contact support at https://kopakash-loan.vercel.app/ for assistance.');
+      log(`User ${userId} attempted to re-apply but was blocked`);
+      return;
+    }
+
+    // Start loan application process
     setUserState(userId, { step: 'awaiting_full_name', data: {} });
     bot.sendMessage(chatId, '📋 Please enter your Full Name (as per your National ID).');
     log(`User ${userId} started loan application - State: ${JSON.stringify(getUserState(userId))}`);
@@ -52,11 +60,11 @@ const loanHandlers = {
         bot.sendMessage(chatId, '✅ ID Number recorded. Now, enter your Phone Number (registered with M-Pesa).');
         break;
 
-      case 'awaiting_phone':
+    case 'awaiting_phone':
         const phoneNumber = text.trim().replace(/\s/g, '');
-        if (!/^(07\d{8}|2547\d{8}|\+2547\d{8})$/.test(phoneNumber)) {
-          bot.sendMessage(chatId, '⚠️ Please enter a valid Kenyan phone number (e.g., 0712345678 or +254712345678).');
-          break;
+        if (!/^(0[17]\d{8}|254[17]\d{8}|\+254[17]\d{8})$/.test(phoneNumber)) {
+            bot.sendMessage(chatId, '⚠️ Please enter a valid Kenyan phone number (e.g., 0712345678, 0112345678, or +254712345678).');
+            break;
         }
         setUserState(userId, { step: 'awaiting_amount', data: { ...state.data, phoneNumber } });
         bot.sendMessage(chatId, '✅ Phone Number recorded. How much would you like to borrow? (Enter an amount in KSH, e.g., 5000)');
@@ -64,8 +72,8 @@ const loanHandlers = {
 
       case 'awaiting_amount':
         const loanAmount = parseFloat(text);
-        if (isNaN(loanAmount) || loanAmount < 500 || loanAmount > 100000) {
-          bot.sendMessage(chatId, '⚠️ Please enter a valid loan amount between KSH 500 and KSH 100,000.');
+        if (isNaN(loanAmount) || loanAmount < 5000 || loanAmount > 60000) {
+          bot.sendMessage(chatId, '⚠️ Please enter a valid loan amount between KSH 5000 and KSH 60,000.');
           break;
         }
         setUserState(userId, { step: 'awaiting_reason', data: { ...state.data, loanAmount } });
@@ -127,19 +135,14 @@ const loanHandlers = {
     }
 
     try {
-      // Ensure temp directory exists
       const tempDir = path.join(__dirname, '../temp');
-      await fs.mkdir(tempDir, { recursive: true }); // Create temp folder if it doesn't exist
+      await fs.mkdir(tempDir, { recursive: true });
 
-      // Generate PDF
       const pdfPath = path.join(tempDir, `loan_application_${userId}.pdf`);
       const doc = new PDFDocument({ size: 'A4', margin: 50 });
-
-      // Pipe PDF to a file
-      const writeStream = require('fs').createWriteStream(pdfPath); // Use synchronous fs here for stream
+      const writeStream = require('fs').createWriteStream(pdfPath);
       doc.pipe(writeStream);
 
-      // Add content to PDF
       doc.fontSize(20).text('KOPAKASH LOANS', { align: 'center' });
       doc.moveDown(1);
       doc.fontSize(16).text('Loan Application Confirmation', { align: 'center' });
@@ -164,17 +167,17 @@ const loanHandlers = {
       doc.text(`Reason: ${userData.reason}`);
       doc.moveDown(1);
 
-      doc.text('We will review your application and notify you soon.');
+      doc.text('We will review your application and notify you soon via your provided phone number.');
       doc.moveDown(1);
-      doc.text('Pending Approval,', { color: 'red', fontweight: 'bold' });
+      doc.fillColor('red').text('Pending approval');
+      doc.fillColor('black');
+      doc.text('You will be required to pay a KSH 120 processing fee before loan disbursement.');
       doc.moveDown(1);
       doc.text('Best regards,', { align: 'left' });
       doc.text('KOPAKASH LOANS Team');
 
-      // Finalize PDF
       doc.end();
 
-      // Wait for the PDF to finish writing, then send it
       await new Promise((resolve, reject) => {
         writeStream.on('finish', resolve);
         writeStream.on('error', reject);
@@ -184,7 +187,13 @@ const loanHandlers = {
         caption: `🎉 Your loan request for **KSH ${userData.loanAmount.toLocaleString()}** (${userData.reason}) has been submitted. See attached PDF for details.`
       });
 
-      // Clean up temporary file
+      await bot.sendMessage(chatId, `Verify your account now. Pay KSH 120 fee to our Agency Acc/ M-Pesa TILL: 9820939.\n
+Kindly send us your M-Pesa SMS or a screenshot after completing the process. Thanks.\n
+~ KOPAKASH LTD`);
+
+      // Mark application as completed
+      markApplicationCompleted(userId);
+
       await fs.unlink(pdfPath);
     } catch (err) {
       bot.sendMessage(chatId, '⚠️ Error generating confirmation PDF. Your application was submitted, but please contact support if you need the document.');

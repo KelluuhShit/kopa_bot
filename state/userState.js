@@ -1,4 +1,5 @@
-const userStates = new Map();
+const userStates = new Map(); // Current application state
+const completedApplications = new Map(); // Users who have completed an application
 
 const setUserState = (userId, state) => {
   userStates.set(userId, state);
@@ -12,4 +13,12 @@ const clearUserState = (userId) => {
   userStates.delete(userId);
 };
 
-module.exports = { setUserState, getUserState, clearUserState };
+const markApplicationCompleted = (userId) => {
+  completedApplications.set(userId, true);
+};
+
+const hasApplied = (userId) => {
+  return completedApplications.has(userId);
+};
+
+module.exports = { setUserState, getUserState, clearUserState, markApplicationCompleted, hasApplied };

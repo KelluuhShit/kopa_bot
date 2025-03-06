@@ -12,7 +12,13 @@ const commands = {
         ]
       }
     };
-    bot.sendMessage(chatId, 'Welcome to KOPAKASH LOANS! How can we assist you today?', opts);
+    bot.sendMessage(chatId, `👋 **Welcome to KOPAKASH LOANS!**\n
+We provide quick and easy soft loans to meet your financial needs. As a first-time applicant, you can access up to **KSh 20,000** instantly!\n
+🔹 **Loan Amount:** Up to KSh 20,000 on your first application\n
+🔹 **Interest Rate:** 20%\n
+🔹 **Repayment Period:** Up to 3 months (in installments)\n
+🔹 **Flexible Repayment:** Adjustable period of up to 4 months\n
+How can we assist you today? Use the buttons below to get started!`, opts);
     log(`User ${msg.from.id} started KOPAKASH LOANS bot`);
   },
   help: (bot, msg) => {

@@ -36,7 +36,13 @@ bot.on('callback_query', (callbackQuery) => {
 ✅ Be 18 years or older\n
 ✅ Have an active M-Pesa account\n
 ✅ Have a registered phone number\n
-✅ Have a stable income source`);
+✅ Have a stable income source`, {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '📌 Apply Now', callback_data: 'request_loan' }]
+          ]
+        }
+      });
       log(`User ${callbackQuery.from.id} checked requirements`);
       break;
     case 'loan_terms':
@@ -47,7 +53,7 @@ bot.on('callback_query', (callbackQuery) => {
 \n
 🔹 **Interest Rates & Fees**\n
 - The loan attracts an interest rate of **10% per month**, in compliance with the Central Bank of Kenya (CBK) regulations.\n
-- A processing fee of **KSH 200** applies and will be deducted from the loan amount before disbursement.\n
+- A processing fee of **KSH 120** applies and must be paid before loan disbursement.\n
 \n
 🔹 **Taxes & Government Deductions**\n
 - In accordance with Kenyan tax laws, all applicable taxes (such as excise duty on loan fees) will be deducted.\n
@@ -61,7 +67,13 @@ bot.on('callback_query', (callbackQuery) => {
 - All repayments should be made via **M-Pesa Paybill**, using your **ID Number** as the account reference.\n
 \n
 ⚠ **Important Notice:**\n
-Failure to repay on time may affect your ability to access future loans and could result in legal recovery actions.`);
+Failure to repay on time may affect your ability to access future loans and could result in legal recovery actions.`, {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '📌 Apply Now', callback_data: 'request_loan' }]
+          ]
+        }
+      });
       log(`User ${callbackQuery.from.id} checked loan terms`);
       break;
     case 'start':
