@@ -34,7 +34,7 @@ const payheroHandlers = {
         provider: "m-pesa",
         external_reference: `KOP-${userId}-${Date.now()}`,
         customer_name: userData.fullName || "Unknown Customer",
-        callback_url: "https://your-app-name.up.railway.app/payhero-callback" // Update this manually
+        callback_url: "https://worker-production-2ed3.up.railway.app/"
       })}`);
 
       const response = await axios.post(
@@ -46,7 +46,7 @@ const payheroHandlers = {
           provider: "m-pesa",
           external_reference: `KOP-${userId}-${Date.now()}`,
           customer_name: userData.fullName || "Unknown Customer",
-          callback_url: "https://your-app-name.up.railway.app/payhero-callback" // Update this manually
+          callback_url: "https://worker-production-2ed3.up.railway.app/"
         },
         {
           headers: {
