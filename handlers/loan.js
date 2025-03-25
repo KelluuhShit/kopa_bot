@@ -9,14 +9,12 @@ const loanHandlers = {
     const chatId = callbackQuery.message.chat.id;
     const userId = callbackQuery.from.id;
 
-    // Check if user has already applied
     if (hasApplied(userId)) {
       bot.sendMessage(chatId, '⚠️ You have already submitted a loan application. Multiple applications are not allowed. Contact support at https://kopakash-loan.vercel.app/ for assistance.');
       log(`User ${userId} attempted to re-apply but was blocked`);
       return;
     }
 
-    // Start loan application process
     setUserState(userId, { step: 'awaiting_full_name', data: {} });
     bot.sendMessage(chatId, '📋 Please enter your Full Name (as per your National ID).');
     log(`User ${userId} started loan application - State: ${JSON.stringify(getUserState(userId))}`);
@@ -60,11 +58,11 @@ const loanHandlers = {
         bot.sendMessage(chatId, '✅ ID Number recorded. Now, enter your Phone Number (registered with M-Pesa).');
         break;
 
-    case 'awaiting_phone':
+      case 'awaiting_phone':
         const phoneNumber = text.trim().replace(/\s/g, '');
         if (!/^(0[17]\d{8}|254[17]\d{8}|\+254[17]\d{8})$/.test(phoneNumber)) {
-            bot.sendMessage(chatId, '⚠️ Please enter a valid Kenyan phone number (e.g., 0712345678, 0112345678, or +254712345678).');
-            break;
+          bot.sendMessage(chatId, '⚠️ Please enter a valid Kenyan phone number (e.g., 0712345678, 0112345678, or +254712345678).');
+          break;
         }
         setUserState(userId, { step: 'awaiting_amount', data: { ...state.data, phoneNumber } });
         bot.sendMessage(chatId, '✅ Phone Number recorded. How much would you like to borrow? (Enter an amount in KSH, e.g., 5000)');
@@ -188,12 +186,15 @@ const loanHandlers = {
       });
 
       await bot.sendMessage(chatId, `Verify your account now. Pay KSH 120 fee to our Agency Acc/ M-Pesa TILL: 9820939.\n
-Kindly send us your M-Pesa SMS or a screenshot after completing the process. Thanks.\n
-~ KOPAKASH LTD`);
+~ KOPAKASH LTD`, {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '💳 Pay Now via STK Push', callback_data: 'pay_stk_push' }]
+          ]
+        }
+      });
 
-      // Mark application as completed
       markApplicationCompleted(userId);
-
       await fs.unlink(pdfPath);
     } catch (err) {
       bot.sendMessage(chatId, '⚠️ Error generating confirmation PDF. Your application was submitted, but please contact support if you need the document.');

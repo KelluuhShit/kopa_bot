@@ -1,5 +1,5 @@
-const userStates = new Map(); // Current application state
-const completedApplications = new Map(); // Users who have completed an application
+const userStates = new Map();
+const completedApplications = new Map();
 
 const setUserState = (userId, state) => {
   userStates.set(userId, state);

@@ -1,18 +1,30 @@
 const TelegramBot = require('node-telegram-bot-api');
+const express = require('express');
 const { telegramToken } = require('./config/config');
 const commands = require('./handlers/commands');
 const { handleMessage } = require('./handlers/messages');
 const loanHandlers = require('./handlers/loan');
+const { payheroHandlers, handleStkPhoneInput } = require('./handlers/payhero');
 const { log } = require('./utils/logger');
 
 const bot = new TelegramBot(telegramToken, { polling: true });
+const app = express();
+
+app.use(express.json());
 
 // Command handlers
 bot.onText(/\/start/, (msg) => commands.start(bot, msg));
 bot.onText(/\/help/, (msg) => commands.help(bot, msg));
 
 // Message handler
-bot.on('message', (msg) => handleMessage(bot, msg));
+bot.on('message', (msg) => {
+  const state = require('./state/userState').getUserState(msg.from.id);
+  if (state?.step === 'awaiting_phone_for_stk') {
+    handleStkPhoneInput(bot, msg); // Handle STK phone input
+  } else {
+    handleMessage(bot, msg); // Regular message handling
+  }
+});
 
 // Callback query handlers
 bot.on('callback_query', (callbackQuery) => {
@@ -29,6 +41,9 @@ bot.on('callback_query', (callbackQuery) => {
       break;
     case 'restart_loan':
       loanHandlers.restartLoan(bot, callbackQuery);
+      break;
+    case 'pay_stk_push':
+      payheroHandlers.payStkPush(bot, callbackQuery);
       break;
     case 'check_requirements':
       bot.sendMessage(chatId, `📋 **Loan Requirements – Kopakash**\n
@@ -82,10 +97,26 @@ Failure to repay on time may affect your ability to access future loans and coul
     case 'help':
       commands.help(bot, { chat: { id: chatId }, from: callbackQuery.from });
       break;
+    default:
+      log(`Unhandled callback: ${data}`);
   }
   bot.answerCallbackQuery(callbackQuery.id);
 });
 
+// PayHero callback endpoint
+app.post('/payhero-callback', async (req, res) => {
+  const paymentData = req.body;
+  log(`Received PayHero callback: ${JSON.stringify(paymentData)}`);
+  await payheroHandlers.handlePayheroCallback(bot, paymentData);
+  res.status(200).send('Callback received');
+});
+
 // Error handling and startup
 bot.on('polling_error', (error) => log(`Polling error: ${error.message}`));
-bot.on('polling', () => log('KOPAKASH LOANS bot is running...'));
+bot.on('polling', () => log('KOPAKASH LOANS bot is polling...'));
+
+// Start Express server
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  log(`Server running on port ${PORT} for PayHero callbacks`);
+});
