@@ -20,7 +20,7 @@ const payheroHandlers = {
     log(`Pay STK Push requested - User: ${userId}, Chat: ${chatId}, Current Data: ${JSON.stringify(userData)}`);
 
     if (!userData.phoneNumber) {
-      setUserState(userId, { step: 'awaiting_phone_for_stk', data: {} });
+      setUserState(userId, { step: 'awaiting_phone_for_stk', data: { chatId } }); // Store chatId
       bot.sendMessage(chatId, '⚠️ We need your phone number to process the payment. Please enter your M-Pesa registered phone number (e.g., 0712345678).');
       log(`User ${userId} prompted for phone number - State updated: ${JSON.stringify(getUserState(userId))}`);
       return;
@@ -34,7 +34,7 @@ const payheroHandlers = {
         provider: "m-pesa",
         external_reference: `KOP-${userId}-${Date.now()}`,
         customer_name: userData.fullName || "Unknown Customer",
-        callback_url: "https://t.me/KopakashLoans_bot"
+        callback_url: "https://your-app-name.up.railway.app/payhero-callback" // Update this manually
       })}`);
 
       const response = await axios.post(
@@ -46,7 +46,7 @@ const payheroHandlers = {
           provider: "m-pesa",
           external_reference: `KOP-${userId}-${Date.now()}`,
           customer_name: userData.fullName || "Unknown Customer",
-          callback_url: "https://t.me/KopakashLoans_bot"
+          callback_url: "https://your-app-name.up.railway.app/payhero-callback" // Update this manually
         },
         {
           headers: {
@@ -79,35 +79,36 @@ const payheroHandlers = {
     log(`PayHero callback received - Raw Data: ${JSON.stringify(paymentData)}`);
 
     const userId = paymentData.external_reference?.split('-')[1] || paymentData.description?.split('User ')[1];
-    const chatId = userId;
-    const status = paymentData.status;
-    const transactionId = paymentData.transaction_id || paymentData.checkout_request_id || 'N/A';
-
     if (!userId) {
       log(`Callback error - No userId found in external_reference or description: ${JSON.stringify(paymentData)}`);
       return;
     }
 
+    const userState = getUserState(userId) || { data: {} };
+    const chatId = userState.data.chatId || userId; // Use stored chatId or fallback to userId
+    const status = paymentData.status;
+    const transactionId = paymentData.transaction_id || paymentData.checkout_request_id || 'N/A';
+
     try {
-      log(`Processing callback for User ${userId} - Status: ${status}, Transaction ID: ${transactionId}`);
+      log(`Processing callback for User ${userId} - Status: ${status}, Transaction ID: ${transactionId}, Chat ID: ${chatId}`);
 
       if (status === 'success' || status === 'COMPLETED') {
-        const currentState = getUserState(userId) || { data: {} };
         setUserState(userId, {
-          ...currentState,
-          data: { ...currentState.data, paymentConfirmed: true, transactionId }
+          ...userState,
+          data: { ...userState.data, paymentConfirmed: true, transactionId }
         });
-        
-        bot.sendMessage(chatId, `🎉 Payment of KSH 1 confirmed! Transaction ID: ${transactionId}. Your loan application is now being processed.`);
+        bot.sendMessage(chatId, `🎉 Payment of KSH 1 confirmed! Transaction ID: ${transactionId}. Your application is now fully submitted and under review.`);
         log(`Payment confirmed for User ${userId} - Transaction ID: ${transactionId}, Updated State: ${JSON.stringify(getUserState(userId))}`);
       } else if (status === 'QUEUED') {
+        bot.sendMessage(chatId, `⏳ Payment queued. Transaction ID: ${transactionId}. Please wait for confirmation.`);
         log(`Payment queued for User ${userId} - Transaction ID: ${transactionId}`);
       } else {
-        bot.sendMessage(chatId, `⚠️ Payment failed. Please try again or contact support. Transaction ID: ${transactionId}`);
+        bot.sendMessage(chatId, `⚠️ Payment failed. Transaction ID: ${transactionId}. Please retry or contact support.`);
         log(`Payment failed for User ${userId} - Status: ${status}, Transaction ID: ${transactionId}`);
       }
     } catch (err) {
       log(`Callback processing error for User ${userId} - Error: ${err.message}, Stack: ${err.stack}`);
+      bot.sendMessage(chatId, `⚠️ Error processing payment callback. Transaction ID: ${transactionId}. Please contact support.`);
     }
   }
 };
@@ -127,7 +128,7 @@ const handleStkPhoneInput = async (bot, msg) => {
       return;
     }
 
-    setUserState(userId, { step: null, data: { phoneNumber: text } });
+    setUserState(userId, { step: null, data: { ...state.data, phoneNumber: text, chatId } }); // Store chatId
     bot.sendMessage(chatId, '✅ Phone number recorded. Initiating payment...');
     log(`User ${userId} phone number recorded - Phone: ${text}, Updated State: ${JSON.stringify(getUserState(userId))}`);
     await payheroHandlers.payStkPush(bot, { message: { chat: { id: chatId } }, from: { id: userId } });

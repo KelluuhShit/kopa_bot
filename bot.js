@@ -3,28 +3,14 @@ const express = require('express');
 const { telegramToken } = require('./config/config');
 const commands = require('./handlers/commands');
 const { handleMessage } = require('./handlers/messages');
-const { loanHandlers, handleLoanInput } = require('./handlers/loan');
+const loanHandlers = require('./handlers/loan'); // Updated import
 const { payheroHandlers, handleStkPhoneInput } = require('./handlers/payhero');
 const { log } = require('./utils/logger');
 
-const bot = new TelegramBot(telegramToken);
+const bot = new TelegramBot(telegramToken, { polling: true });
 const app = express();
 
 app.use(express.json());
-
-// Webhook endpoint for Telegram updates
-app.post('/telegram-webhook', (req, res) => {
-  bot.processUpdate(req.body);
-  res.status(200).send('OK');
-});
-
-// Set webhook
-const WEBHOOK_URL = 'https://t.me/KopakashLoans_bot'; // Replace with your Railway URL
-bot.setWebHook(WEBHOOK_URL).then(() => {
-  log(`Webhook set to ${WEBHOOK_URL}`);
-}).catch(err => {
-  log(`Failed to set webhook: ${err.message}`);
-});
 
 // Command handlers
 bot.onText(/\/start/, (msg) => commands.start(bot, msg));
@@ -35,8 +21,12 @@ bot.on('message', (msg) => {
   const state = require('./state/userState').getUserState(msg.from.id);
   if (state?.step === 'awaiting_phone_for_stk') {
     handleStkPhoneInput(bot, msg);
-  } else if (state?.step === 'awaiting_amount' || state?.step === 'awaiting_reason') {
-    handleLoanInput(bot, msg);
+  } else if (state?.step === 'awaiting_full_name' || 
+             state?.step === 'awaiting_id_number' || 
+             state?.step === 'awaiting_phone' || 
+             state?.step === 'awaiting_amount' || 
+             state?.step === 'awaiting_reason') {
+    loanHandlers.handleUserResponse(bot, msg); // Updated to match loan.js
   } else {
     handleMessage(bot, msg);
   }
@@ -127,11 +117,14 @@ app.post('/payhero-callback', async (req, res) => {
   res.status(200).send('Callback received');
 });
 
-// Webhook error handling
-bot.on('webhook_error', (error) => log(`Webhook error: ${error.message}`));
+// Polling error handling
+bot.on('polling_error', (error) => log(`Polling error: ${error.message}`));
 
-// Start Express server
+// Log when bot starts polling
+bot.on('polling', () => log('KOPAKASH LOANS bot is polling...'));
+
+// Start Express server for PayHero callbacks
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  log(`Server running on port ${PORT} for Telegram and PayHero callbacks`);
+  log(`Server running on port ${PORT} for PayHero callbacks`);
 });
