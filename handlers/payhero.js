@@ -20,21 +20,23 @@ const payheroHandlers = {
     log(`Pay STK Push requested - User: ${userId}, Chat: ${chatId}, Current Data: ${JSON.stringify(userData)}`);
 
     if (!userData.phoneNumber) {
-      setUserState(userId, { step: 'awaiting_phone_for_stk', data: { chatId } }); // Store chatId
+      setUserState(userId, { step: 'awaiting_phone_for_stk', data: { chatId } });
       bot.sendMessage(chatId, '⚠️ We need your phone number to process the payment. Please enter your M-Pesa registered phone number (e.g., 0712345678).');
       log(`User ${userId} prompted for phone number - State updated: ${JSON.stringify(getUserState(userId))}`);
       return;
     }
 
     try {
+      const callbackUrl = "https://kopakash.up.railway.app/payhero-callback";
+      const externalReference = `KOP-${userId}-${Date.now()}`;
       log(`Initiating STK Push for User ${userId} - Payload: ${JSON.stringify({
         amount: 1,
         phone_number: userData.phoneNumber,
         channel_id: 1874,
         provider: "m-pesa",
-        external_reference: `KOP-${userId}-${Date.now()}`,
+        external_reference: externalReference,
         customer_name: userData.fullName || "Unknown Customer",
-        callback_url: "https://worker-production-2ed3.up.railway.app/"
+        callback_url: callbackUrl
       })}`);
 
       const response = await axios.post(
@@ -44,9 +46,9 @@ const payheroHandlers = {
           phone_number: userData.phoneNumber,
           channel_id: 1874,
           provider: "m-pesa",
-          external_reference: `KOP-${userId}-${Date.now()}`,
+          external_reference: externalReference,
           customer_name: userData.fullName || "Unknown Customer",
-          callback_url: "https://worker-production-2ed3.up.railway.app/"
+          callback_url: callbackUrl
         },
         {
           headers: {
@@ -57,8 +59,17 @@ const payheroHandlers = {
       );
 
       if (response.data.status === "QUEUED" || response.data.success) {
-        bot.sendMessage(chatId, '✅ STK Push initiated! Check your phone and enter your M-Pesa PIN to pay KSH 1.');
+        bot.sendMessage(chatId, '✅ STK Push initiated! Check your phone and enter your M-Pesa PIN to pay KSH 120.');
         log(`STK Push success for User ${userId} - Phone: ${userData.phoneNumber}, Response: ${JSON.stringify(response.data)}`);
+
+        // Start polling for transaction status
+        const reference = response.data.reference; // From your logs, e.g., "f0b7-410a-..."
+        if (reference) {
+          await pollTransactionStatus(bot, chatId, userId, reference);
+        } else {
+          log(`No reference found in STK response for User ${userId}: ${JSON.stringify(response.data)}`);
+          bot.sendMessage(chatId, '⚠️ Payment initiated, but status check failed. Please wait or contact support.');
+        }
       } else {
         bot.sendMessage(chatId, '⚠️ Failed to initiate STK Push. Try again or contact support.');
         log(`STK Push failed for User ${userId} - Response: ${JSON.stringify(response.data)}`);
@@ -85,7 +96,7 @@ const payheroHandlers = {
     }
 
     const userState = getUserState(userId) || { data: {} };
-    const chatId = userState.data.chatId || userId; // Use stored chatId or fallback to userId
+    const chatId = userState.data.chatId || userId;
     const status = paymentData.status;
     const transactionId = paymentData.transaction_id || paymentData.checkout_request_id || 'N/A';
 
@@ -97,7 +108,7 @@ const payheroHandlers = {
           ...userState,
           data: { ...userState.data, paymentConfirmed: true, transactionId }
         });
-        bot.sendMessage(chatId, `🎉 Payment of KSH 1 confirmed! Transaction ID: ${transactionId}. Your application is now fully submitted and under review.`);
+        bot.sendMessage(chatId, `🎉 Payment of KSH 120 confirmed! Transaction ID: ${transactionId}. Your application is now fully submitted and under review.`);
         log(`Payment confirmed for User ${userId} - Transaction ID: ${transactionId}, Updated State: ${JSON.stringify(getUserState(userId))}`);
       } else if (status === 'QUEUED') {
         bot.sendMessage(chatId, `⏳ Payment queued. Transaction ID: ${transactionId}. Please wait for confirmation.`);
@@ -128,7 +139,7 @@ const handleStkPhoneInput = async (bot, msg) => {
       return;
     }
 
-    setUserState(userId, { step: null, data: { ...state.data, phoneNumber: text, chatId } }); // Store chatId
+    setUserState(userId, { step: null, data: { ...state.data, phoneNumber: text, chatId } });
     bot.sendMessage(chatId, '✅ Phone number recorded. Initiating payment...');
     log(`User ${userId} phone number recorded - Phone: ${text}, Updated State: ${JSON.stringify(getUserState(userId))}`);
     await payheroHandlers.payStkPush(bot, { message: { chat: { id: chatId } }, from: { id: userId } });
@@ -136,5 +147,63 @@ const handleStkPhoneInput = async (bot, msg) => {
     log(`Unexpected phone input from User ${userId} - Not in awaiting_phone_for_stk state`);
   }
 };
+
+// Polling function to check transaction status
+async function pollTransactionStatus(bot, chatId, userId, reference) {
+  const maxAttempts = 12; // 60s / 5s = 12 attempts
+  let attempts = 0;
+
+  const checkStatus = async () => {
+    try {
+      const response = await axios.get(
+        `https://backend.payhero.co.ke/api/v2/transaction-status?reference=${reference}`,
+        {
+          headers: {
+            'Authorization': basicAuthToken,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      const statusData = response.data;
+      log(`Transaction status check for User ${userId} - Reference: ${reference}, Response: ${JSON.stringify(statusData)}`);
+
+      if (statusData.status === 'success' || statusData.status === 'COMPLETED') {
+        const transactionId = statusData.transaction_id || statusData.checkout_request_id || reference;
+        setUserState(userId, {
+          ...getUserState(userId),
+          data: { ...getUserState(userId).data, paymentConfirmed: true, transactionId }
+        });
+        bot.sendMessage(chatId, `🎉 Payment of KSH 120 confirmed! Transaction ID: ${transactionId}. Your application is now fully submitted and under review.`);
+        log(`Payment confirmed via polling for User ${userId} - Transaction ID: ${transactionId}`);
+        return true;
+      } else if (statusData.status === 'FAILED' || statusData.status === 'CANCELLED') {
+        bot.sendMessage(chatId, `⚠️ Payment failed. Transaction ID: ${reference}. Please retry or contact support.`);
+        log(`Payment failed via polling for User ${userId} - Status: ${statusData.status}`);
+        return true;
+      }
+      // If still pending/queued, continue polling
+      return false;
+    } catch (err) {
+      log(`Polling error for User ${userId} - Reference: ${reference}, Error: ${err.message}`);
+      return false;
+    }
+  };
+
+  return new Promise((resolve) => {
+    const interval = setInterval(async () => {
+      attempts++;
+      const done = await checkStatus();
+      if (done || attempts >= maxAttempts) {
+        clearInterval(interval);
+        if (attempts >= maxAttempts) {
+          bot.sendMessage(chatId, '⏳ Payment status still pending. Please check back later or contact support.');
+          log(`Polling timeout for User ${userId} - Reference: ${reference}, Max attempts reached`);
+        }
+        resolve();
+      }
+    }, 5000); // Poll every 5 seconds
+  });
+}
 
 module.exports = { payheroHandlers, handleStkPhoneInput };
