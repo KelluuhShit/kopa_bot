@@ -119,7 +119,7 @@ const loanHandlers = {
   confirmLoan: async (bot, callbackQuery) => {
     const chatId = callbackQuery.message.chat.id;
     const userId = callbackQuery.from.id;
-    const userData = getUserState(userId).data;
+    const userData = getUserState(userId)?.data || {};
 
     if (!userData || !userData.loanAmount) {
       bot.sendMessage(chatId, '⚠️ No loan application found. Please start again.', {
@@ -132,60 +132,73 @@ const loanHandlers = {
       return;
     }
 
-    try {
-      const tempDir = path.join(__dirname, '../temp');
-      await fs.mkdir(tempDir, { recursive: true });
+    // Check if payment is confirmed
+    if (userData.paymentConfirmed) {
+      try {
+        const tempDir = path.join(__dirname, '../temp');
+        await fs.mkdir(tempDir, { recursive: true });
 
-      const pdfPath = path.join(tempDir, `loan_application_${userId}.pdf`);
-      const doc = new PDFDocument({ size: 'A4', margin: 50 });
-      const writeStream = require('fs').createWriteStream(pdfPath);
-      doc.pipe(writeStream);
+        const pdfPath = path.join(tempDir, `loan_application_${userId}.pdf`);
+        const doc = new PDFDocument({ size: 'A4', margin: 50 });
+        const writeStream = require('fs').createWriteStream(pdfPath);
+        doc.pipe(writeStream);
 
-      doc.fontSize(20).text('KOPAKASH LOANS', { align: 'center' });
-      doc.moveDown(1);
-      doc.fontSize(16).text('Loan Application Confirmation', { align: 'center' });
-      doc.moveDown(2);
+        doc.fontSize(20).text('KOPAKASH LOANS', { align: 'center' });
+        doc.moveDown(1);
+        doc.fontSize(16).text('Loan Application Confirmation', { align: 'center' });
+        doc.moveDown(2);
 
-      doc.fontSize(12).text(`Date: ${new Date().toLocaleDateString()}`, { align: 'left' });
-      doc.moveDown(1);
+        doc.fontSize(12).text(`Date: ${new Date().toLocaleDateString()}`, { align: 'left' });
+        doc.moveDown(1);
 
-      doc.text('Dear Customer,', { align: 'left' });
-      doc.moveDown(0.5);
-      doc.text('Thank you for applying for a loan with KOPAKASH LOANS. Below are your application details:');
-      doc.moveDown(1);
+        doc.text('Dear Customer,', { align: 'left' });
+        doc.moveDown(0.5);
+        doc.text('Thank you for applying for a loan with KOPAKASH LOANS. Below are your application details:');
+        doc.moveDown(1);
 
-      doc.text(`Full Name: ${userData.fullName}`);
-      doc.moveDown(0.5);
-      doc.text(`National ID: ${userData.idNumber}`);
-      doc.moveDown(0.5);
-      doc.text(`Phone Number: ${userData.phoneNumber}`);
-      doc.moveDown(0.5);
-      doc.text(`Loan Amount: KSH ${userData.loanAmount.toLocaleString()}`);
-      doc.moveDown(0.5);
-      doc.text(`Reason: ${userData.reason}`);
-      doc.moveDown(1);
+        doc.text(`Full Name: ${userData.fullName}`);
+        doc.moveDown(0.5);
+        doc.text(`National ID: ${userData.idNumber}`);
+        doc.moveDown(0.5);
+        doc.text(`Phone Number: ${userData.phoneNumber}`);
+        doc.moveDown(0.5);
+        doc.text(`Loan Amount: KSH ${userData.loanAmount.toLocaleString()}`);
+        doc.moveDown(0.5);
+        doc.text(`Reason: ${userData.reason}`);
+        doc.moveDown(1);
 
-      doc.text('We will review your application and notify you soon via your provided phone number.');
-      doc.moveDown(1);
-      doc.fillColor('red').text('Pending approval');
-      doc.fillColor('black');
-      doc.text('You will be required to pay a KSH 120 processing fee before loan disbursement.');
-      doc.moveDown(1);
-      doc.text('Best regards,', { align: 'left' });
-      doc.text('KOPAKASH LOANS Team');
+        doc.text('We will review your application and notify you soon via your provided phone number.');
+        doc.moveDown(1);
+        doc.fillColor('green').text('Payment Confirmed - Application Processing');
+        doc.fillColor('black');
+        doc.moveDown(1);
+        doc.text('Best regards,', { align: 'left' });
+        doc.text('KOPAKASH LOANS Team');
 
-      doc.end();
+        doc.end();
 
-      await new Promise((resolve, reject) => {
-        writeStream.on('finish', resolve);
-        writeStream.on('error', reject);
-      });
+        await new Promise((resolve, reject) => {
+          writeStream.on('finish', resolve);
+          writeStream.on('error', reject);
+        });
 
-      await bot.sendDocument(chatId, pdfPath, {
-        caption: `🎉 Your loan request for **KSH ${userData.loanAmount.toLocaleString()}** (${userData.reason}) has been submitted. See attached PDF for details.`
-      });
+        await bot.sendDocument(chatId, pdfPath, {
+          caption: `🎉 Your loan request for **KSH ${userData.loanAmount.toLocaleString()}** (${userData.reason}) has been submitted. See attached PDF for details.`
+        });
 
-      await bot.sendMessage(chatId, `Verify your account now. Pay KSH 120 fee to our Agency Acc/ M-Pesa TILL: 9820939.\n
+        await bot.sendMessage(chatId, '✅ Your loan application is now being processed.');
+        log(`User ${userId} loan application confirmed and PDF sent after payment`);
+
+        markApplicationCompleted(userId);
+        await fs.unlink(pdfPath);
+        clearUserState(userId);
+      } catch (err) {
+        bot.sendMessage(chatId, '⚠️ Error generating confirmation PDF. Your application was submitted, but please contact support if you need the document.');
+        log(`Error in confirmLoan for ${userId}: ${err.message}`);
+      }
+    } else {
+      // Prompt payment if not yet paid
+      await bot.sendMessage(chatId, `📌 Your application is ready, Pay a KSH 120 processing fee to proceed.\n
 ~ KOPAKASH LTD`, {
         reply_markup: {
           inline_keyboard: [
@@ -193,16 +206,8 @@ const loanHandlers = {
           ]
         }
       });
-
-      markApplicationCompleted(userId);
-      await fs.unlink(pdfPath);
-    } catch (err) {
-      bot.sendMessage(chatId, '⚠️ Error generating confirmation PDF. Your application was submitted, but please contact support if you need the document.');
-      log(`Error in confirmLoan for ${userId}: ${err.message}`);
+      log(`User ${userId} prompted to pay KSH 120 fee before PDF`);
     }
-
-    clearUserState(userId);
-    log(`User ${userId} submitted loan application: KSH ${userData.loanAmount}`);
   },
 
   restartLoan: (bot, callbackQuery) => {

@@ -17,24 +17,36 @@ const payheroHandlers = {
     const userId = callbackQuery.from.id;
     const userData = getUserState(userId)?.data || {};
 
+    log(`Pay STK Push requested - User: ${userId}, Chat: ${chatId}, Current Data: ${JSON.stringify(userData)}`);
+
     if (!userData.phoneNumber) {
       setUserState(userId, { step: 'awaiting_phone_for_stk', data: {} });
       bot.sendMessage(chatId, '⚠️ We need your phone number to process the payment. Please enter your M-Pesa registered phone number (e.g., 0712345678).');
-      log(`User ${userId} prompted for phone number for STK Push`);
+      log(`User ${userId} prompted for phone number - State updated: ${JSON.stringify(getUserState(userId))}`);
       return;
     }
 
     try {
+      log(`Initiating STK Push for User ${userId} - Payload: ${JSON.stringify({
+        amount: 1,
+        phone_number: userData.phoneNumber,
+        channel_id: 1874,
+        provider: "m-pesa",
+        external_reference: `KOP-${userId}-${Date.now()}`,
+        customer_name: userData.fullName || "Unknown Customer",
+        callback_url: "https://t.me/KopakashLoans_bot"
+      })}`);
+
       const response = await axios.post(
         'https://backend.payhero.co.ke/api/v2/payments',
         {
-          amount: 120, // Numeric per sample
-          phone_number: userData.phoneNumber, // Exact field name
-          channel_id: 1874, // From sample; confirm with PayHero if specific to your account
-          provider: "m-pesa", // Exact value
-          external_reference: `KOP-${userId}-${Date.now()}`, // Unique ref like INV-009
-          customer_name: userData.fullName || "Unknown Customer", // Use fullName if available
-          callback_url: "https://t.me/KopakashLoans_bot" // Replace with your Railway URL
+          amount: 1,
+          phone_number: userData.phoneNumber,
+          channel_id: 1874,
+          provider: "m-pesa",
+          external_reference: `KOP-${userId}-${Date.now()}`,
+          customer_name: userData.fullName || "Unknown Customer",
+          callback_url: "https://t.me/KopakashLoans_bot"
         },
         {
           headers: {
@@ -45,34 +57,57 @@ const payheroHandlers = {
       );
 
       if (response.data.status === "QUEUED" || response.data.success) {
-        bot.sendMessage(chatId, '✅ STK Push initiated! Check your phone and enter your M-Pesa PIN to pay KSH 120.');
-        log(`STK Push initiated for ${userId} - Phone: ${userData.phoneNumber} - Response: ${JSON.stringify(response.data)}`);
+        bot.sendMessage(chatId, '✅ STK Push initiated! Check your phone and enter your M-Pesa PIN to pay KSH 1.');
+        log(`STK Push success for User ${userId} - Phone: ${userData.phoneNumber}, Response: ${JSON.stringify(response.data)}`);
       } else {
         bot.sendMessage(chatId, '⚠️ Failed to initiate STK Push. Try again or contact support.');
-        log(`STK Push failed for ${userId}: ${JSON.stringify(response.data)}`);
+        log(`STK Push failed for User ${userId} - Response: ${JSON.stringify(response.data)}`);
       }
     } catch (err) {
-      bot.sendMessage(chatId, '⚠️ Error initiating payment. Contact support.');
-      log(`STK Push error for ${userId}: ${err.message} - Status: ${err.response?.status} - Data: ${JSON.stringify(err.response?.data)}`);
+      const errorData = err.response?.data || {};
+      if (errorData.error_message === "insufficient balance") {
+        bot.sendMessage(chatId, '⚠️ Payment failed due to insufficient balance in our system. Please try again later or contact support.');
+        log(`STK Push error for User ${userId} - Insufficient balance, Error: ${JSON.stringify(errorData)}`);
+      } else {
+        bot.sendMessage(chatId, '⚠️ Error initiating payment. Contact support.');
+        log(`STK Push error for User ${userId} - Message: ${err.message}, Status: ${err.response?.status}, Data: ${JSON.stringify(errorData)}`);
+      }
     }
   },
 
   handlePayheroCallback: async (bot, paymentData) => {
+    log(`PayHero callback received - Raw Data: ${JSON.stringify(paymentData)}`);
+
     const userId = paymentData.external_reference?.split('-')[1] || paymentData.description?.split('User ')[1];
-    const chatId = userId; // Adjust if needed
+    const chatId = userId;
     const status = paymentData.status;
     const transactionId = paymentData.transaction_id || paymentData.checkout_request_id || 'N/A';
 
+    if (!userId) {
+      log(`Callback error - No userId found in external_reference or description: ${JSON.stringify(paymentData)}`);
+      return;
+    }
+
     try {
-      if (status === 'success' || status === 'QUEUED' || status === 'COMPLETED') {
-        bot.sendMessage(chatId, `🎉 Payment of KSH 120 confirmed! Transaction ID: ${transactionId}. Your loan application is now being processed.`);
-        log(`Payment confirmed for ${userId} - Transaction ID: ${transactionId}`);
+      log(`Processing callback for User ${userId} - Status: ${status}, Transaction ID: ${transactionId}`);
+
+      if (status === 'success' || status === 'COMPLETED') {
+        const currentState = getUserState(userId) || { data: {} };
+        setUserState(userId, {
+          ...currentState,
+          data: { ...currentState.data, paymentConfirmed: true, transactionId }
+        });
+        
+        bot.sendMessage(chatId, `🎉 Payment of KSH 1 confirmed! Transaction ID: ${transactionId}. Your loan application is now being processed.`);
+        log(`Payment confirmed for User ${userId} - Transaction ID: ${transactionId}, Updated State: ${JSON.stringify(getUserState(userId))}`);
+      } else if (status === 'QUEUED') {
+        log(`Payment queued for User ${userId} - Transaction ID: ${transactionId}`);
       } else {
         bot.sendMessage(chatId, `⚠️ Payment failed. Please try again or contact support. Transaction ID: ${transactionId}`);
-        log(`Payment failed for ${userId} - Status: ${status}`);
+        log(`Payment failed for User ${userId} - Status: ${status}, Transaction ID: ${transactionId}`);
       }
     } catch (err) {
-      log(`Error processing PayHero callback for ${userId}: ${err.message}`);
+      log(`Callback processing error for User ${userId} - Error: ${err.message}, Stack: ${err.stack}`);
     }
   }
 };
@@ -83,16 +118,21 @@ const handleStkPhoneInput = async (bot, msg) => {
   const text = msg.text.trim().replace(/\s/g, '');
   const state = getUserState(userId);
 
+  log(`Phone input received - User: ${userId}, Chat: ${chatId}, Input: "${text}", Current State: ${JSON.stringify(state)}`);
+
   if (state?.step === 'awaiting_phone_for_stk') {
     if (!/^(0[17]\d{8}|254[17]\d{8}|\+254[17]\d{8})$/.test(text)) {
       bot.sendMessage(chatId, '⚠️ Please enter a valid Kenyan phone number (e.g., 0712345678, 0112345678, or +254712345678).');
+      log(`Invalid phone number entered by User ${userId} - Input: "${text}"`);
       return;
     }
 
     setUserState(userId, { step: null, data: { phoneNumber: text } });
     bot.sendMessage(chatId, '✅ Phone number recorded. Initiating payment...');
-    log(`User ${userId} provided phone number: ${text}`);
+    log(`User ${userId} phone number recorded - Phone: ${text}, Updated State: ${JSON.stringify(getUserState(userId))}`);
     await payheroHandlers.payStkPush(bot, { message: { chat: { id: chatId } }, from: { id: userId } });
+  } else {
+    log(`Unexpected phone input from User ${userId} - Not in awaiting_phone_for_stk state`);
   }
 };
 
