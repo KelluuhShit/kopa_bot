@@ -28,7 +28,7 @@ const payheroHandlers = {
     }
 
     try {
-      const callbackUrl = "https://kopa-bot.vercel.app/payhero-callback";
+      const callbackUrl = "https://kopakash.up.railway.app/payhero-callback";
       const externalReference = `KOP-${userId}-${Date.now()}`;
       log(`Initiating STK Push for User ${userId} - Payload: ${JSON.stringify({
         amount: 1,
