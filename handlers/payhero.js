@@ -28,10 +28,10 @@ const payheroHandlers = {
     }
 
     try {
-      const callbackUrl = "https://5ac1-2c0f-fe38-2254-4959-14bd-3bbb-b322-ceef.ngrok-free.app/payhero-callback";
+      const callbackUrl = "https://kopa-bot.vercel.app/payhero-callback";
       const externalReference = `KOP-${userId}-${Date.now()}`;
       log(`Initiating STK Push for User ${userId} - Payload: ${JSON.stringify({
-        amount: 120,
+        amount: 1,
         phone_number: userData.phoneNumber,
         channel_id: 1874,
         provider: "m-pesa",
@@ -43,7 +43,7 @@ const payheroHandlers = {
       const response = await axios.post(
         'https://backend.payhero.co.ke/api/v2/payments',
         {
-          amount: 120,
+          amount: 1,
           phone_number: userData.phoneNumber,
           channel_id: 1874,
           provider: "m-pesa",
