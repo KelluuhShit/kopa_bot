@@ -31,7 +31,7 @@ const payheroHandlers = {
       const callbackUrl = "https://kopakash.up.railway.app/payhero-callback";
       const externalReference = `KOP-${userId}-${Date.now()}`;
       log(`Initiating STK Push for User ${userId} - Payload: ${JSON.stringify({
-        amount: 1,
+        amount: 120,
         phone_number: userData.phoneNumber,
         channel_id: 1874,
         provider: "m-pesa",
@@ -43,7 +43,7 @@ const payheroHandlers = {
       const response = await axios.post(
         'https://backend.payhero.co.ke/api/v2/payments',
         {
-          amount: 1,
+          amount: 120,
           phone_number: userData.phoneNumber,
           channel_id: 1874,
           provider: "m-pesa",
